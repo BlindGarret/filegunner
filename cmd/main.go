@@ -90,7 +90,7 @@ func event(cfg filegunner.Configuration, logfn filegunner.LogFn) filegunner.Even
 		if req.Attachments != nil {
 			// root the attachments
 			for i, s := range req.Attachments {
-				req.Attachments[i] = filepath.Join(cfg.InputDir, s)
+				req.Attachments[i].FilePath = filepath.Join(cfg.InputDir, s.FilePath)
 			}
 		}
 
@@ -124,16 +124,16 @@ func event(cfg filegunner.Configuration, logfn filegunner.LogFn) filegunner.Even
 			}
 
 			if req.Attachments != nil {
-				for _, path := range req.Attachments {
-					bs, err := readFileContents(path)
+				for _, attachment := range req.Attachments {
+					bs, err := readFileContents(attachment.FilePath)
 					if err != nil {
-						logfn("error reading attachment for history: ", path, err)
+						logfn("error reading attachment for history: ", attachment.FilePath, err)
 						continue
 					}
-					fileName := strconv.FormatInt(now, 10) + "." + filepath.Base(path)
+					fileName := strconv.FormatInt(now, 10) + "." + filepath.Base(attachment.FilePath)
 					err = os.WriteFile(filepath.Join(*cfg.HistoryDir, fileName), bs, 0644)
 					if err != nil {
-						logfn("error creating historical save for file: ", path, err)
+						logfn("error creating historical save for file: ", attachment.FilePath, err)
 						// we won't return here, as we don't want to redo this functionality move on to deletion
 					}
 				}
@@ -145,10 +145,10 @@ func event(cfg filegunner.Configuration, logfn filegunner.LogFn) filegunner.Even
 			logfn("error removing file: ", evt.FileName, err)
 		}
 		if req.Attachments != nil {
-			for _, path := range req.Attachments {
-				err = os.Remove(path)
+			for _, attachment := range req.Attachments {
+				err = os.Remove(attachment.FilePath)
 				if err != nil {
-					logfn("error removing file: ", path, err)
+					logfn("error removing file: ", attachment.FilePath, err)
 				}
 			}
 		}

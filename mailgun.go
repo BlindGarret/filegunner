@@ -7,8 +7,12 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 )
+
+type Attachment struct {
+	FilePath       string
+	AttachmentName string
+}
 
 type MailRequest struct {
 	From        string
@@ -18,7 +22,7 @@ type MailRequest struct {
 	Template    string
 	Variables   *string
 	ServiceID   string
-	Attachments []string
+	Attachments []Attachment
 }
 
 func SendMailRequest(mailReq MailRequest, service MailgunService) error {
@@ -60,12 +64,12 @@ func SendMailRequest(mailReq MailRequest, service MailgunService) error {
 	}
 
 	if mailReq.Attachments != nil {
-		for _, path := range mailReq.Attachments {
-			attachmentWriter, err := w.CreateFormFile("attachment", filepath.Base(path))
+		for _, attachment := range mailReq.Attachments {
+			attachmentWriter, err := w.CreateFormFile("attachment", attachment.AttachmentName)
 			if err != nil {
 				return err
 			}
-			err = writeFileToAttachment(path, attachmentWriter)
+			err = writeFileToAttachment(attachment.FilePath, attachmentWriter)
 			if err != nil {
 				return err
 			}

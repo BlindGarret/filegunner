@@ -52,6 +52,15 @@ func DryRunMail(mailReq MailRequest, fileName string) error {
 		}
 	}
 
+	if mailReq.Attachments != nil {
+		for _, attachment := range mailReq.Attachments {
+			_, err = f.WriteString(fmt.Sprintf("Attachment: %s as %s\n", attachment.FilePath, attachment.AttachmentName))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	_, err = f.WriteString(fmt.Sprintf("Mailgun Service: %s\n", mailReq.ServiceID))
 	return err
 }
