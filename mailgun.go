@@ -3,10 +3,8 @@ package filegunner
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
 )
 
 type Attachment struct {
@@ -25,7 +23,21 @@ type MailRequest struct {
 	Attachments []Attachment
 }
 
-func SendMailRequest(mailReq MailRequest, service MailgunService) error {
+type MailgunMailer struct {
+	client        HttpClient
+	readFileFunc  ReadFileFunc
+	serviceLookup map[string]MailgunService
+}
+
+func NewMailgunMailer(client HttpClient, readFileFunc ReadFileFunc, serviceLookup map[string]MailgunService) *MailgunMailer {
+	return &MailgunMailer{
+		client:        client,
+		readFileFunc:  readFileFunc,
+		serviceLookup: serviceLookup,
+	}
+}
+
+func (m *MailgunMailer) Send(mailReq MailRequest, fileName string) error {
 	var bs bytes.Buffer
 	w := multipart.NewWriter(&bs)
 
@@ -69,7 +81,11 @@ func SendMailRequest(mailReq MailRequest, service MailgunService) error {
 			if err != nil {
 				return err
 			}
-			err = writeFileToAttachment(attachment.FilePath, attachmentWriter)
+			bs, err := m.readFileFunc(attachment.FilePath)
+			if err != nil {
+				return err
+			}
+			_, err = attachmentWriter.Write(bs)
 			if err != nil {
 				return err
 			}
@@ -81,15 +97,19 @@ func SendMailRequest(mailReq MailRequest, service MailgunService) error {
 		return err
 	}
 
-	req, err := http.NewRequest("POST", service.Url, &bs)
+	service, ok := m.serviceLookup[mailReq.ServiceID]
+	if !ok {
+		return fmt.Errorf("service not found: %s", mailReq.ServiceID)
+	}
+
+	httpReq, err := http.NewRequest("POST", service.Url, &bs)
 	if err != nil {
 		return err
 	}
 
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.SetBasicAuth("api", service.ApiKey)
-	client := http.Client{}
-	resp, err := client.Do(req)
+	httpReq.Header.Set("Content-Type", w.FormDataContentType())
+	httpReq.SetBasicAuth("api", service.ApiKey)
+	resp, err := m.client.Do(httpReq)
 	if err != nil {
 		return err
 	}
@@ -99,20 +119,4 @@ func SendMailRequest(mailReq MailRequest, service MailgunService) error {
 	}
 
 	return nil
-}
-
-func writeFileToAttachment(path string, writer io.Writer) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	fileContents, err := io.ReadAll(file)
-	if err != nil {
-		return err
-	}
-
-	_, err = writer.Write(fileContents)
-	return err
 }

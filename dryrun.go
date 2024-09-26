@@ -2,65 +2,74 @@ package filegunner
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
-func DryRunMail(mailReq MailRequest, fileName string) error {
+type DryRunMailer struct {
+	fileCreateFunc CreateFileFunc
+}
+
+func NewDryRunMailer(fileCreateFunc CreateFileFunc) *DryRunMailer {
+	return &DryRunMailer{
+		fileCreateFunc: fileCreateFunc,
+	}
+}
+
+func (m *DryRunMailer) Send(req MailRequest, fileName string) error {
 	logFileName := strings.TrimSuffix(fileName, ".maildata.json") + ".log"
+	f, err := m.fileCreateFunc(logFileName)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
-	f, err := os.Create(logFileName)
+	_, err = f.Write([]byte("#################################\n"))
 	if err != nil {
 		return err
 	}
 
-	_, err = f.WriteString("#################################\n")
+	_, err = f.Write([]byte(fmt.Sprintf("To: %s\n", req.To)))
 	if err != nil {
 		return err
 	}
 
-	_, err = f.WriteString(fmt.Sprintf("To: %s\n", mailReq.To))
+	_, err = f.Write([]byte(fmt.Sprintf("From: %s\n", req.From)))
 	if err != nil {
 		return err
 	}
 
-	_, err = f.WriteString(fmt.Sprintf("From: %s\n", mailReq.From))
-	if err != nil {
-		return err
-	}
-
-	if mailReq.Bcc != nil {
-		_, err = f.WriteString(fmt.Sprintf("BCC: %s\n", *mailReq.Bcc))
+	if req.Bcc != nil {
+		_, err = f.Write([]byte(fmt.Sprintf("BCC: %s\n", *req.Bcc)))
 		if err != nil {
 			return err
 		}
 	}
-	_, err = f.WriteString(fmt.Sprintf("Subject Line: %s\n", mailReq.Subject))
+	_, err = f.Write([]byte(fmt.Sprintf("Subject Line: %s\n", req.Subject)))
 	if err != nil {
 		return err
 	}
 
-	_, err = f.WriteString(fmt.Sprintf("Template Name: %s\n", mailReq.Template))
+	_, err = f.Write([]byte(fmt.Sprintf("Template Name: %s\n", req.Template)))
 	if err != nil {
 		return err
 	}
 
-	if mailReq.Variables != nil {
-		_, err = f.WriteString(fmt.Sprintf("Variables: %s\n", *mailReq.Variables))
+	if req.Variables != nil {
+		_, err = f.Write([]byte(fmt.Sprintf("Variables: %s\n", *req.Variables)))
 		if err != nil {
 			return err
 		}
 	}
 
-	if mailReq.Attachments != nil {
-		for _, attachment := range mailReq.Attachments {
-			_, err = f.WriteString(fmt.Sprintf("Attachment: %s as %s\n", attachment.FilePath, attachment.AttachmentName))
+	if req.Attachments != nil {
+		for _, attachment := range req.Attachments {
+			_, err = f.Write([]byte(fmt.Sprintf("Attachment: %s as %s\n", attachment.FilePath, attachment.AttachmentName)))
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	_, err = f.WriteString(fmt.Sprintf("Mailgun Service: %s\n", mailReq.ServiceID))
+	_, err = f.Write([]byte(fmt.Sprintf("Mailgun Service: %s\n", req.ServiceID)))
 	return err
 }

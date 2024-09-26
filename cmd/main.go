@@ -94,20 +94,18 @@ func event(cfg filegunner.Configuration, logfn filegunner.LogFn) filegunner.Even
 			}
 		}
 
-		service, isFound := cfg.Services[req.ServiceID]
-		if !isFound {
-			logfn("mailgun service not found: ", req.ServiceID)
-			return
-		}
+		httpClient := filegunner.NewHttpClientWrapper()
+		dryRunMailer := filegunner.NewDryRunMailer(osCreate)
+		mailgunMailer := filegunner.NewMailgunMailer(httpClient, readFileContents, cfg.Services)
 
 		if cfg.RunMode == filegunner.DryRun {
-			err = filegunner.DryRunMail(req, evt.FileName)
+			err = dryRunMailer.Send(req, evt.FileName)
 			if err != nil {
 				logfn("error making dry run log: ", evt.FileName, err)
 				return
 			}
 		} else {
-			err = filegunner.SendMailRequest(req, service)
+			err = mailgunMailer.Send(req, evt.FileName)
 			if err != nil {
 				logfn("error sending mail for file: ", evt.FileName, err)
 				return
@@ -153,6 +151,10 @@ func event(cfg filegunner.Configuration, logfn filegunner.LogFn) filegunner.Even
 			}
 		}
 	}
+}
+
+func osCreate(s string) (io.WriteCloser, error) {
+	return os.Create(s)
 }
 
 func readFileContents(path string) ([]byte, error) {
