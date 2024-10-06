@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"time"
 )
 
 type Attachment struct {
@@ -37,7 +38,7 @@ func NewMailgunMailer(client HttpClient, readFileFunc ReadFileFunc, serviceLooku
 	}
 }
 
-func (m *MailgunMailer) Send(mailReq MailRequest, fileName string) error {
+func (m *MailgunMailer) Send(mailReq MailRequest, fileName string, now time.Time) error {
 	var bs bytes.Buffer
 	w := multipart.NewWriter(&bs)
 

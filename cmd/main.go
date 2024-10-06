@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -16,7 +17,11 @@ import (
 
 func main() {
 	// Read in configuration
-	buf, err := os.ReadFile("config.yaml")
+	configLocation := os.Getenv("CONFIG_PATH")
+	if configLocation == "" {
+		configLocation = "config.yaml"
+	}
+	buf, err := os.ReadFile(configLocation)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -24,6 +29,25 @@ func main() {
 	err = yaml.Unmarshal(buf, &c)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	fmt.Println("Configuration Details:")
+	fmt.Printf("Run Without Filewatcher: %t\n", c.RunNoWatcher)
+	fmt.Printf("Run With Verbosity Flag for FileWatcher: %t\n", c.VerboseFileWatcher)
+	fmt.Printf("Input Directory: %s\n", c.InputDir)
+	if c.HistoryDir != nil {
+		fmt.Printf("History Directory: %s\n", *c.HistoryDir)
+	}
+
+	httpClient := filegunner.NewHttpClientWrapper()
+	var mailer filegunner.Mailer
+	if c.RunMode == filegunner.DryRun {
+		mailer, err = filegunner.NewDryRunMailer(osCreate, c.LogDir)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		mailer = filegunner.NewMailgunMailer(httpClient, readFileContents, c.Services)
 	}
 
 	logFn := log.Default().Println
@@ -39,24 +63,32 @@ func main() {
 		log.Fatal("history directory does not exist", *c.HistoryDir)
 	}
 
-	// Start filewatcher on input directory
-	watcher, err := filegunner.NewWatcher(c.InputDir, logFn, log.Fatal, event(c, logFn))
-	if err != nil {
-		log.Fatal(err)
+	if !c.RunNoWatcher {
+		// Start filewatcher on input directory
+		watcher, err := filegunner.NewWatcher(c.InputDir, logFn, log.Fatal, event(c, logFn, mailer))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer watcher.Close()
 	}
-	defer watcher.Close()
 
 	// read existing files
+	fmt.Println("Reading Directory")
 	fs, err := os.ReadDir(c.InputDir)
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Printf("Found %d files...", len(fs))
 	for _, f := range fs {
-		event(c, logFn)(filegunner.CreationEvent{FileName: filepath.Join(c.InputDir, f.Name())})
+		fmt.Printf("Working on File: %s \n", f.Name())
+		event(c, logFn, mailer)(filegunner.CreationEvent{FileName: filepath.Join(c.InputDir, f.Name())})
 	}
 
-	// Block main goroutine forever.
-	<-make(chan struct{})
+	if !c.RunNoWatcher {
+		// Block main goroutine forever.
+		fmt.Println("Waiting for File Events...")
+		<-make(chan struct{})
+	}
 }
 
 func noop(_ ...any) {
@@ -64,11 +96,17 @@ func noop(_ ...any) {
 
 func dirExists(path string) bool {
 	_, err := os.Stat(path)
-	return err == nil
+	if err != nil {
+		fmt.Println(err)
+		fmt.Printf("for path: %s\n", path)
+		return false
+	}
+	return true
 }
 
-func event(cfg filegunner.Configuration, logfn filegunner.LogFn) filegunner.EventFn {
+func event(cfg filegunner.Configuration, logfn filegunner.LogFn, mailer filegunner.Mailer) filegunner.EventFn {
 	return func(evt filegunner.CreationEvent) {
+		now := time.Now()
 		if !strings.HasSuffix(evt.FileName, ".maildata.json") {
 			logfn("File isn't maildata. Skipping. ", evt.FileName)
 			return
@@ -94,27 +132,14 @@ func event(cfg filegunner.Configuration, logfn filegunner.LogFn) filegunner.Even
 			}
 		}
 
-		httpClient := filegunner.NewHttpClientWrapper()
-		dryRunMailer := filegunner.NewDryRunMailer(osCreate)
-		mailgunMailer := filegunner.NewMailgunMailer(httpClient, readFileContents, cfg.Services)
-
-		if cfg.RunMode == filegunner.DryRun {
-			err = dryRunMailer.Send(req, evt.FileName)
-			if err != nil {
-				logfn("error making dry run log: ", evt.FileName, err)
-				return
-			}
-		} else {
-			err = mailgunMailer.Send(req, evt.FileName)
-			if err != nil {
-				logfn("error sending mail for file: ", evt.FileName, err)
-				return
-			}
+		err = mailer.Send(req, evt.FileName, now)
+		if err != nil {
+			logfn("error sending: ", evt.FileName, err)
+			return
 		}
 
 		if cfg.HistoryDir != nil {
-			now := time.Now().Unix()
-			fileName := strconv.FormatInt(now, 10) + "." + filepath.Base(evt.FileName)
+			fileName := strconv.FormatInt(now.Unix(), 10) + "." + filepath.Base(evt.FileName)
 			err = os.WriteFile(filepath.Join(*cfg.HistoryDir, fileName), buf, 0644)
 			if err != nil {
 				logfn("error creating historical save for file: ", evt.FileName, err)
@@ -128,7 +153,7 @@ func event(cfg filegunner.Configuration, logfn filegunner.LogFn) filegunner.Even
 						logfn("error reading attachment for history: ", attachment.FilePath, err)
 						continue
 					}
-					fileName := strconv.FormatInt(now, 10) + "." + filepath.Base(attachment.FilePath)
+					fileName := strconv.FormatInt(now.Unix(), 10) + "." + filepath.Base(attachment.FilePath)
 					err = os.WriteFile(filepath.Join(*cfg.HistoryDir, fileName), bs, 0644)
 					if err != nil {
 						logfn("error creating historical save for file: ", attachment.FilePath, err)

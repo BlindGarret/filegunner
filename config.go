@@ -12,7 +12,9 @@ type Configuration struct {
 	RunMode            RunModeEnum               `yaml:"runMode"`
 	HistoryDir         *string                   `yaml:"historyDir"`
 	InputDir           string                    `yaml:"inputDir"`
+	LogDir             string                    `yaml:"logDir"`
 	VerboseFileWatcher bool                      `yaml:"verboseFileWatcher"`
+	RunNoWatcher       bool                      `yaml:"runNoWatcher"`
 }
 
 type MailgunService struct {
